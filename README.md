@@ -2,12 +2,13 @@
 
 A small AWS CDK v2 project written in Python. It provisions an S3 bucket and a
 Python 3.12 Lambda function exposed through an API Gateway REST API. A
-`GET /hello` request invokes the function, writes `hello.txt` to S3 with
+Cognito-authenticated `GET /hello` request invokes the function, writes `hello.txt` to S3 with
 `Hello from API Gateway!`, and returns JSON containing the message and bucket name.
 
 This is a learning project: repeated invocations overwrite the same object.
-The `/hello` endpoint is public and does not require authentication or an API key.
-Every request performs an S3 write, including requests made by other people.
+The `/hello` endpoint requires a valid Cognito ID token in the `Authorization`
+header. Self-sign-up is disabled: an administrator must create application users.
+All authenticated users share the same `hello.txt` object.
 
 ## What gets deployed
 
@@ -15,6 +16,10 @@ Every request performs an S3 write, including requests made by other people.
 - **Lambda function (`LabLambda`)** with the bucket name supplied through `BUCKET_NAME`.
 - **API Gateway REST API (`LabApi`)** with a `GET /hello` route using Lambda
   proxy integration and a `prod` deployment stage.
+- **Cognito user pool (`LabUserPool`)** with email sign-in and self-sign-up disabled.
+- **App client (`LabAppClient`)** without a client secret, supporting password and
+  SRP authentication.
+- **Cognito authorizer (`LabAuthorizer`)** protecting `GET /hello`.
 - **IAM permissions** granting the function write access to that bucket.
 - CDK-generated supporting resources, including a custom resource for emptying
   the bucket during deletion.
@@ -27,7 +32,7 @@ throwaway data. AWS usage can incur charges.
 
 ```text
 app.py                              CDK application entry point
-aws_cdk_lab/aws_cdk_lab_stack.py     S3, Lambda, API Gateway, and IAM definitions
+aws_cdk_lab/aws_cdk_lab_stack.py     S3, Lambda, API Gateway, Cognito, and IAM definitions
 lambda/lambda_function.py           Lambda handler
 cdk.json                            CDK app command and feature flags
 tests/unit/                         Infrastructure assertions
@@ -45,7 +50,7 @@ produces an untested-version warning.
 ```bash
 git clone git@github.com:micnguyen266/aws-cdk-lab.git
 cd aws-cdk-lab
-git switch api-gateway
+git switch cognito-auth
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -93,9 +98,33 @@ After deployment, CDK prints the API base URL in the stack outputs. You can also
 find it under **Outputs** for `AwsCdkLabStack` in the CloudFormation console in
 `us-east-2`. The URL includes the `prod` stage; append `hello` to its trailing slash.
 
+### Sign in and send an authenticated request
+
+1. In the stack's **Resources** tab, find `LabUserPool` and open that user pool in
+   Cognito. Find `LabAppClient` in its app clients and copy the client ID.
+2. Create a test application user as an administrator. Self-sign-up is disabled.
+   Complete any temporary-password/new-password challenge before requesting tokens.
+3. Sign in through the app client's `USER_PASSWORD_AUTH` or SRP flow and obtain
+   `AuthenticationResult.IdToken`. This stack does not configure a hosted login
+   domain or a frontend sign-in page. AWS CLI profile sign-in (`aws login`) is
+   separate from Cognito application-user sign-in.
+4. Send the ID token in the `Authorization` header:
+
 ```bash
-curl 'https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/hello'
+# Replace the placeholders locally; do not commit tokens or passwords.
+ID_TOKEN='<cognito-id-token>'
+curl -i \
+  -H "Authorization: $ID_TOKEN" \
+  'https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/hello'
+unset ID_TOKEN
 ```
+
+This method has no OAuth authorization scopes configured, so use an **ID token**,
+as described in the [AWS Cognito authorizer documentation](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-enable-cognito-user-pool.html).
+A request without a token should return HTTP 401 without invoking the handler.
+If an authenticated request returns 401, check the token's expiry and that it
+belongs to this user pool.
+
 
 A successful request returns HTTP 200 with `Content-Type: application/json`:
 
@@ -113,7 +142,8 @@ Only `GET /hello` is configured; the API root is not a handler route.
 You can also test the `LabLambda` function directly in the Lambda console with an
 empty event (`{}`). Direct invocation returns the Lambda proxy response envelope
 (`statusCode`, `headers`, and a JSON-encoded `body`); API Gateway sends the body
-itself to HTTP clients.
+itself to HTTP clients. Direct Lambda console tests bypass the API Gateway
+authorizer and do not verify Cognito authentication.
 
 ## Clean up
 
@@ -123,7 +153,9 @@ To permanently delete the lab stack **and all objects in its bucket**:
 cdk destroy --profile aws-toolkit
 ```
 
-CDK bootstrap resources are separate from this stack and remain after destruction.
+The Cognito user pool also uses `RemovalPolicy.DESTROY`: destroying the stack
+permanently deletes the user pool and its application users. CDK bootstrap
+resources are separate and remain after stack destruction.
 
 ## Files kept out of Git
 
