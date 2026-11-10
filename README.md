@@ -153,10 +153,9 @@ To permanently delete the lab stack **and all objects in its bucket**:
 cdk destroy --profile aws-toolkit
 ```
 
-The Cognito user pool uses the CDK default retention policy and remains after
-stack destruction, along with its users. Remove it separately in Cognito if it
-is no longer needed. CDK bootstrap resources are also separate and remain after
-stack destruction.
+The Cognito user pool also uses `RemovalPolicy.DESTROY`: destroying the stack
+permanently deletes the user pool and its application users. CDK bootstrap
+resources are separate and remain after stack destruction.
 
 ## Files kept out of Git
 

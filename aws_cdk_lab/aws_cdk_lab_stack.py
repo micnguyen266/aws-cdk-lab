@@ -53,6 +53,7 @@ class AwsCdkLabStack(Stack):
             sign_in_aliases=cognito.SignInAliases(
                 email=True,
             ),
+            removal_policy=RemovalPolicy.DESTROY,
         )
 
         user_pool_client = user_pool.add_client(
