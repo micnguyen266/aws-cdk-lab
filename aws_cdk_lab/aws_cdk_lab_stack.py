@@ -1,6 +1,7 @@
 from aws_cdk import (
     RemovalPolicy,
     Stack,
+    aws_apigateway as apigateway,
     aws_lambda as lambda_,
     aws_s3 as s3,
 )
@@ -36,3 +37,17 @@ class AwsCdkLabStack(Stack):
         )
 
         bucket.grant_write(function)
+
+        api = apigateway.LambdaRestApi(
+            self,
+            "LabApi",
+            handler=function,
+            proxy=False,
+        )
+
+        hello = api.root.add_resource("hello")
+
+        hello.add_method(
+            "GET",
+            apigateway.LambdaIntegration(function),
+        )

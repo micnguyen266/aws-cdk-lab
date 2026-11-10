@@ -1,17 +1,20 @@
 # AWS CDK Lab
 
 A small AWS CDK v2 project written in Python. It provisions an S3 bucket and a
-Python 3.12 Lambda function. Each invocation writes `hello.txt` to the bucket with
-`Hello from my updated AWS CDK lab!` and returns a JSON response containing the
-bucket name.
+Python 3.12 Lambda function exposed through an API Gateway REST API. A
+`GET /hello` request invokes the function, writes `hello.txt` to S3 with
+`Hello from API Gateway!`, and returns JSON containing the message and bucket name.
 
 This is a learning project: repeated invocations overwrite the same object.
-There is no API Gateway, public HTTP endpoint, or automatic event trigger.
+The `/hello` endpoint is public and does not require authentication or an API key.
+Every request performs an S3 write, including requests made by other people.
 
 ## What gets deployed
 
 - **S3 bucket (`LabBucket`)** with public access blocked by the project's CDK configuration.
 - **Lambda function (`LabLambda`)** with the bucket name supplied through `BUCKET_NAME`.
+- **API Gateway REST API (`LabApi`)** with a `GET /hello` route using Lambda
+  proxy integration and a `prod` deployment stage.
 - **IAM permissions** granting the function write access to that bucket.
 - CDK-generated supporting resources, including a custom resource for emptying
   the bucket during deletion.
@@ -24,7 +27,7 @@ throwaway data. AWS usage can incur charges.
 
 ```text
 app.py                              CDK application entry point
-aws_cdk_lab/aws_cdk_lab_stack.py     S3, Lambda, and IAM definitions
+aws_cdk_lab/aws_cdk_lab_stack.py     S3, Lambda, API Gateway, and IAM definitions
 lambda/lambda_function.py           Lambda handler
 cdk.json                            CDK app command and feature flags
 tests/unit/                         Infrastructure assertions
@@ -42,6 +45,7 @@ produces an untested-version warning.
 ```bash
 git clone git@github.com:micnguyen266/aws-cdk-lab.git
 cd aws-cdk-lab
+git switch api-gateway
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -83,22 +87,33 @@ cdk deploy --profile aws-toolkit
 The stack is environment-agnostic; deployment uses your selected CLI profile.
 Review the target project, Region, and proposed permissions before deployment.
 
-## Try the function
+## Try the API
 
-1. Open the `AwsCdkLabStack` stack in CloudFormation in `us-east-2`.
-2. In **Resources**, open the Lambda function whose logical ID starts with
-   `LabLambda` (not the CDK bucket-cleanup function).
-3. In the Lambda console, run a test with an empty event: `{}`.
-4. Open the S3 bucket identified in the response and download `hello.txt`.
+After deployment, CDK prints the API base URL in the stack outputs. You can also
+find it under **Outputs** for `AwsCdkLabStack` in the CloudFormation console in
+`us-east-2`. The URL includes the `prod` stage; append `hello` to its trailing slash.
 
-Example handler response (`bucket` is generated during deployment):
+```bash
+curl 'https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/hello'
+```
+
+A successful request returns HTTP 200 with `Content-Type: application/json`:
 
 ```json
 {
-  "statusCode": 200,
-  "body": "{\"message\": \"File written to S3\", \"bucket\": \"<generated-bucket-name>\"}"
+  "message": "Hello from API Gateway!",
+  "bucket": "<generated-bucket-name>"
 }
 ```
+
+Open the returned bucket in the S3 console and download `hello.txt` to verify its
+contents. Calling the endpoint again overwrites that object with the same message.
+Only `GET /hello` is configured; the API root is not a handler route.
+
+You can also test the `LabLambda` function directly in the Lambda console with an
+empty event (`{}`). Direct invocation returns the Lambda proxy response envelope
+(`statusCode`, `headers`, and a JSON-encoded `body`); API Gateway sends the body
+itself to HTTP clients.
 
 ## Clean up
 
